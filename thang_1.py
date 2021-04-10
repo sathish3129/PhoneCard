@@ -5,70 +5,117 @@ from Utill import OSInfo as oi  # remove
 
 # filename =input('File name:')
 
-filename = oi.get_basedir(__file__) + oi.getDelimit() + 'res/sample.txt'  # remove
-output_filename = filename + '_output.xlsx'
+filename = oi.get_basedir(__file__) + oi.getDelimit() + 'res/sample2.txt'  # remove
+output_filename = oi.get_basedir(__file__) + oi.getDelimit() + 'res/output2.xlsx'
 
+client_name = ''
+client_data = {}
 
-def toTeraBytes(size, type):
-    if type is None:
-        return size
+with open(filename) as _fh:
+    for line in _fh:
 
-    if type == 'T':
-        size = toTeraBytes(size, None)
-    elif type == 'G':
-        size = toTeraBytes(size / 1000, 'T')
-    elif type == 'M':
-        size = toTeraBytes(size / 1000, 'G')
+        if line.strip() == '' or re.match(r'^\s*(hadoop|\-)', line) or re.match(r'^\s*\(\d+\s+rows\)', line):
+            continue
+        elif line.startswith('Client'):
+            cl_line = line.split(':')
+            client_name = cl_line[1].strip()
+            client_data[client_name] = {
+                'DATA':[]
+            }
+        else:
+            cl_data = line.split('|')
+            cl_data = list(map(lambda x: x.strip(), cl_data))
+            if cl_data[2] not in client_data[client_name]:
+                client_data[client_name][cl_data[2]] = {'size': 0}
+            client_data[client_name][cl_data[2]]['size'] += float(cl_data[1])
+            client_data[client_name]['DATA'].append(
+                {
+                    'name': cl_data[0],
+                    'cpu': cl_data[1],
+                    'bucket': cl_data[2],
+                }
+            )
+_fh.close()
 
-    return size
-
+print(client_data)
 
 workbook = xlsxwriter.Workbook(output_filename)
 sheet = workbook.add_worksheet('Overview')
-sheet.set_column('A:A', 15)
-sheet.set_column('B:B', 30)
-sheet.set_column('C:C', 10)
+sheet_summary = {
+    'FOX' : workbook.add_worksheet('FOX'),
+    'IRIS': workbook.add_worksheet('IRIS'),
+    'FOX_IRIS': workbook.add_worksheet('FOX_IRIS')
+}
 
 header_format = workbook.add_format({
     'bold': 1,
-    'border': 1,
     'font_size': 12,
     'align': 'center',
     'valign': 'vcenter',
     'fg_color': '#dee6ef'
 })
-normal_format= workbook.add_format({
+
+client_header = workbook.add_format({
+    'bold': 1,
+    'font_size': 12,
+    'align': 'center',
     'valign': 'vcenter',
-    'border': 1,
+    'fg_color': '#FFFF00'
 })
 
+normal_format= workbook.add_format({
+    'valign': 'vcenter',
+})
+
+# overview
 row = 0
+summary_row = {
+    'FOX' : {'row':0, 'col':0},
+    'IRIS': {'row':0, 'col':0},
+    'FOX_IRIS': {'row':0, 'col':0}
+}
+
+
+for i in sheet_summary.keys():
+    sheet_summary[i].write(summary_row[i]['row'], summary_row[i]['col'], 'Client', header_format)
+    sheet_summary[i].write(summary_row[i]['row'], summary_row[i]['col'] + 1, 'Client', header_format)
+    summary_row[i]['row'] += 1
+
+
 col = 0
-sheet.write(row, col, 'Date', header_format)
-sheet.write(row, col + 1, 'Environment', header_format)
-sheet.write(row, col + 2, 'TB Usage', header_format)
-sheet.write(row, col + 3, 'Month', header_format)
-sheet.write(row, col + 4, 'Year', header_format)
-sheet.write(row, col + 5, 'Product', header_format)
-row += 1
+sheet.write(row, col, 'Client', header_format)
+sheet.write(row, col + 1, 'Job Type', header_format)
+sheet.write(row, col + 2, 'CUP Time', header_format)
+sheet.write(row, col + 3, 'Bucket', header_format)
+row += 2
 
+for _name in client_data.keys():
+    col=0
+    sheet.write(row, col, _name, client_header)
 
-date = datetime.now() - timedelta(days=int(datetime.now().strftime("%d")))
+    if len(client_data[_name]['DATA']) == 0:
+        continue
 
-with open(filename) as _fh:
-    for line in _fh:
-        col=0
-        data = re.split('\s+', line)
-        client_size = toTeraBytes(int(data[0]), data[1])
-        client = data[4].split('/')
-        sheet.write(row, col, date.strftime('%d-%m-%Y'), normal_format)
-        sheet.write(row, col + 1, client[-1], normal_format)
-        sheet.write(row, col + 2, client_size, normal_format)
-        sheet.write(row, col + 3, date.strftime('%m'), normal_format)
-        sheet.write(row, col + 4, date.strftime('%Y'), normal_format)
-        sheet.write(row, col + 5, 'FOX', normal_format)
+    row+=1
+    for k in client_data[_name].keys():
 
-        row += 1
+        if k == 'DATA':
+            for dat in client_data[_name]['DATA']:
+                col=0
+                sheet.write(row, col+1, dat['name'], normal_format)
+                sheet.write(row, col+2, dat['cpu'], normal_format)
+                sheet.write(row, col+3, dat['bucket'], normal_format)
+                row += 1
+            row += 1
+        else:
+            k_key = k.replace('/', '_')
+            summary_row[k_key]['col'] = 0
+            print(f'k:{k}')
+            print('data:{0}'.format(client_data[_name][k]))
+            sheet_summary[k_key].write(summary_row[k_key]['row'], summary_row[k_key]['col'], _name, normal_format)
+            sheet_summary[k_key].write(summary_row[k_key]['row'], summary_row[k_key]['col'] + 1, client_data[_name][k]['size'],
+                                       normal_format)
+            summary_row[k_key]['row'] += 1
+
 
 workbook.close()
-_fh.close()
